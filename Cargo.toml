@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/content",
+    "crates/background",
+    "crates/vomnibar",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["c4kar"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/c4kar/vimium-rs"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

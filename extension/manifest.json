@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Vimium-RS",
+  "version": "0.1.0",
+  "description": "The hacker's browser navigation tool, rewritten in Rust and WebAssembly.",
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+  },
+  "background": {
+    "service_worker": "background/service_worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/loader.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "dist/vimium_content_bg.wasm",
+        "styles/hints.css"
+      ],
+      "matches": ["<all_urls>"],
+      "use_dynamic_url": true
+    }
+  ]
+}

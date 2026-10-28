@@ -1,0 +1,19 @@
+{
+  "name": "vimium-rs",
+  "version": "0.1.0",
+  "description": "Vimium C rewrite in Rust and WebAssembly",
+  "scripts": {
+    "test": "cargo test --workspace",
+    "check": "cargo check --workspace",
+    "build": "./scripts/build.sh"
+  },
+  "keywords": [
+    "vimium",
+    "rust",
+    "wasm",
+    "webextension",
+    "keyboard-navigation"
+  ],
+  "author": "c4kar",
+  "license": "MIT OR Apache-2.0"
+}

@@ -1,0 +1,15 @@
+/target
+**/*.rs.bk
+Cargo.lock
+
+# Build & extension outputs
+extension/dist/
+node_modules/
+dist/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
