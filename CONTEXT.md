@@ -52,6 +52,18 @@ _Avoid_: Content script, page agent, frontend
 The WebExtension service worker coordinating cross-tab state, window tracking, storage, and privileged browser APIs.
 _Avoid_: Background script, daemon, extension manager
 
+**Message Envelope**:
+A typed, versioned data packet (`{ id, type, frame_id, payload }`) used for one-off request-response IPC between content scripts and the service worker.
+_Avoid_: Port packet, IPC blob
+
+**Frame Handshake**:
+The two-phase protocol (local count aggregation followed by non-overlapping prefix partition assignment) coordinating link hint generation across iframes.
+_Avoid_: Iframe ping, sync loop
+
+**Active Frame**:
+The distinct frame within a tab currently possessing user input focus, tracked by the Background Worker via focus/blur events.
+_Avoid_: Focused window, target iframe
+
 **Vomnibar**:
 An in-page floating modal interface for interactive fuzzy searching and switching tabs, history, bookmarks, and search engines.
 _Avoid_: Omnibar, search popup, quick open

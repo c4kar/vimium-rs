@@ -238,3 +238,15 @@ window.addEventListener("keydown", (e) => {
 
 // Start WASM initialization
 initWasm();
+
+// Focus tracking across frames
+window.addEventListener("focus", () => {
+  chrome.runtime.sendMessage({ type: "FRAME_FOCUSED" }).catch(() => {});
+});
+
+// Broadcast listener for cross-frame commands
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === "DISMISS_HINTS_BROADCAST") {
+    hideHints();
+  }
+});
