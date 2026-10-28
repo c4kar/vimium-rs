@@ -112,6 +112,24 @@ function isInteractiveElement(el) {
 }
 
 function findFirstVisibleRect(el, vLeft, vTop, vRight, vBottom) {
+  if (typeof el.getBoundingClientRect === "function") {
+    const bbox = el.getBoundingClientRect();
+    if (
+      bbox.width <= 0 ||
+      bbox.height <= 0 ||
+      bbox.right < vLeft ||
+      bbox.left > vRight ||
+      bbox.bottom < vTop ||
+      bbox.top > vBottom
+    ) {
+      return null;
+    }
+    if (bbox.left >= vLeft && bbox.top >= vTop) {
+      return bbox;
+    }
+  }
+
+  // Fallback for wrapped multi-line inline elements whose bounding origin is offscreen
   if (typeof el.getClientRects === "function") {
     const rects = el.getClientRects();
     for (let i = 0; i < rects.length; i++) {
@@ -127,21 +145,6 @@ function findFirstVisibleRect(el, vLeft, vTop, vRight, vBottom) {
         return r;
       }
     }
-    return null;
-  }
-
-  if (typeof el.getBoundingClientRect === "function") {
-    const bbox = el.getBoundingClientRect();
-    if (
-      bbox.width > 0 &&
-      bbox.height > 0 &&
-      bbox.right >= vLeft &&
-      bbox.left <= vRight &&
-      bbox.bottom >= vTop &&
-      bbox.top <= vBottom
-    ) {
-      return bbox;
-    }
   }
   return null;
 }
@@ -150,15 +153,17 @@ function isStyleVisible(el) {
   let cached = styleVisibilityCache.get(el);
   if (cached !== undefined) return cached;
 
-  if (typeof window.getComputedStyle !== "function") {
-    return true;
+  let visible = true;
+  if (typeof el.checkVisibility === "function") {
+    visible = el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+  } else if (typeof window.getComputedStyle === "function") {
+    const style = window.getComputedStyle(el);
+    visible =
+      !style ||
+      (style.visibility !== "hidden" &&
+        style.display !== "none" &&
+        parseFloat(style.opacity) !== 0);
   }
-  const style = window.getComputedStyle(el);
-  const visible =
-    !style ||
-    (style.visibility !== "hidden" &&
-      style.display !== "none" &&
-      parseFloat(style.opacity) !== 0);
   styleVisibilityCache.set(el, visible);
   return visible;
 }
@@ -222,33 +227,28 @@ function collectCandidatesIntoWasm() {
   const f32View = new Float32Array(mem, ptr, elements.length * 8);
 
   const occlusionStart = typeof performance !== "undefined" ? performance.now() : 0;
-  const OCCLUSION_BUDGET_MS = 2.0;
   let validCount = 0;
 
   for (let i = 0; i < elements.length; i++) {
     const el = elements[i];
 
-    // Fast path: check checkVisibility() if supported by modern Chromium/Firefox
-    if (typeof el.checkVisibility === "function") {
-      if (!el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) {
-        continue;
-      }
-    }
-
+    // 1. Geometry viewport check FIRST (cheapest C++ call in Gecko/Blink)
     const rect = findFirstVisibleRect(el, vLeft, vTop, vRight, vBottom);
     if (!rect) {
       continue;
     }
 
-    if (typeof el.checkVisibility !== "function" && !isStyleVisible(el)) {
+    // 2. Visibility check only for elements inside the viewport (cached across activations)
+    if (!isStyleVisible(el)) {
       continue;
     }
 
-    // 2ms time-budgeted center-point occlusion check
+    // 3. Sampling center-point occlusion check only for the first 32 viewport candidates within 1.5ms budget
     if (
+      validCount < 32 &&
       typeof document.elementFromPoint === "function" &&
       typeof performance !== "undefined" &&
-      performance.now() - occlusionStart < OCCLUSION_BUDGET_MS
+      performance.now() - occlusionStart < 1.5
     ) {
       const cx = Math.min(Math.max(rect.left + rect.width * 0.5, 0), vRight - 1);
       const cy = Math.min(Math.max(rect.top + rect.height * 0.5, 0), vBottom - 1);
@@ -317,6 +317,7 @@ function acquireMarkerNode(index) {
   }
   const marker = document.createElement("div");
   marker.className = "vimium-hint-marker";
+  marker._pooled = false;
   markerPool.push(marker);
   return marker;
 }
@@ -385,20 +386,21 @@ function showHints(actionCode = 1, useCached = false, totalCount = 0, offset = 0
     }
 
     const marker = acquireMarkerNode(i);
-    marker.style.left = `${x}px`;
-    marker.style.top = `${y}px`;
-    marker.style.transform = `translate3d(0,0,0)`;
+    marker.style.transform = `translate3d(${Math.round(x)}px,${Math.round(y)}px,0)`;
     marker.dataset.elementId = String(elementId);
     marker.dataset.label = labelStr;
     marker.textContent = labelStr;
 
     activeMarkers.push(marker);
-    if (!marker.parentNode) {
+    if (!marker._pooled) {
+      marker._pooled = true;
       fragment.appendChild(marker);
     }
   }
 
-  shadowRoot.appendChild(fragment);
+  if (fragment.childNodes ? fragment.childNodes.length > 0 : fragment.children?.length > 0) {
+    shadowRoot.appendChild(fragment);
+  }
 }
 
 function updateMarkersFromWasm(matchedLen) {
@@ -431,12 +433,6 @@ function updateMarkersFromWasm(matchedLen) {
 }
 
 function hideHints() {
-  if (shadowRoot) {
-    const existingBadges = shadowRoot.querySelectorAll(".vimium-hint-marker");
-    for (let i = 0; i < existingBadges.length; i++) {
-      existingBadges[i].remove();
-    }
-  }
   for (let i = 0; i < activeMarkers.length; i++) {
     activeMarkers[i].style.display = "none";
   }

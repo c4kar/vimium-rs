@@ -40,16 +40,27 @@ function createDomEnvironment() {
     }
 
     getBoundingClientRect() {
-      return (
-        this._rects[0] || {
-          left: 0,
-          top: 0,
-          right: 0,
-          bottom: 0,
-          width: 0,
-          height: 0,
-        }
-      );
+      if (this._rects.length === 0) {
+        return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 };
+      }
+      let left = Infinity;
+      let top = Infinity;
+      let right = -Infinity;
+      let bottom = -Infinity;
+      for (const r of this._rects) {
+        if (r.left < left) left = r.left;
+        if (r.top < top) top = r.top;
+        if (r.right > right) right = r.right;
+        if (r.bottom > bottom) bottom = r.bottom;
+      }
+      return {
+        left,
+        top,
+        right,
+        bottom,
+        width: Math.max(0, right - left),
+        height: Math.max(0, bottom - top),
+      };
     }
 
     appendChild(child) {
@@ -266,8 +277,7 @@ test("Content loader collects multi-line rects, pierces open Shadow DOM, filters
   );
 
   // Multi-line link should use its 2nd rect (left=45, top=120)
-  assert.equal(activeMarkers[0].style.left, "45px");
-  assert.equal(activeMarkers[0].style.top, "120px");
+  assert.equal(activeMarkers[0].style.transform, "translate3d(45px,120px,0)");
 
   // Type first hint's label to activate multiLineLink
   const firstLabel = activeMarkers[0].dataset.label || activeMarkers[0].textContent.toLowerCase();
