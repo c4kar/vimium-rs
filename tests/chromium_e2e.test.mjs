@@ -22,6 +22,13 @@ function startTestServer() {
   <a id="link-alpha" class="btn" href="#alpha" onclick="window.__clicked = 'alpha'; return false;">Alpha Link</a>
   <button id="btn-beta" class="btn" onclick="window.__clicked = 'beta';">Beta Button</button>
   <a id="link-gamma" class="btn" href="#gamma" onclick="window.__clicked = 'gamma'; return false;">Gamma Link</a>
+  <div id="perf-grid">
+    ${Array.from(
+      { length: 250 },
+      (_, i) =>
+        `<a class="btn" href="#item-${i}" style="padding:2px 4px;margin:2px;font-size:10px;">Item ${i}</a>`
+    ).join("")}
+  </div>
 </body>
 </html>`;
 
@@ -188,14 +195,14 @@ test("Real Chromium 155 loads MV3 extension, instantiates WASM under CSP, scroll
   );
 
   // Press 's' (first letter of DEFAULT_HINT_CHARACTERS = "sadfjklewcmpgh") to activate the 1st link (#link-alpha)
+  // Note: With ~250 links, the first hint label is 2 chars ("ss") or 1 char ("s") depending on S = (14^2 - N)/(13).
+  // Let's press Escape first to measure repeated 'f' latency with warm marker pool!
   await cdp.send(
     "Input.dispatchKeyEvent",
     {
       type: "keyDown",
-      key: "s",
-      text: "s",
-      unmodifiedText: "s",
-      windowsVirtualKeyCode: 83,
+      key: "Escape",
+      windowsVirtualKeyCode: 27,
     },
     sessionId
   );
@@ -203,11 +210,55 @@ test("Real Chromium 155 loads MV3 extension, instantiates WASM under CSP, scroll
     "Input.dispatchKeyEvent",
     {
       type: "keyUp",
-      key: "s",
-      windowsVirtualKeyCode: 83,
+      key: "Escape",
+      windowsVirtualKeyCode: 27,
     },
     sessionId
   );
+
+  // Measure warm 'f' activation latency in real Chromium via performance.now()
+  const perfEval = await cdp.send(
+    "Runtime.evaluate",
+    {
+      expression: `(() => {
+        const t0 = performance.now();
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", bubbles: true, cancelable: true }));
+        const t1 = performance.now();
+        return t1 - t0;
+      })()`,
+      returnByValue: true,
+    },
+    sessionId
+  );
+  console.log(`[Chromium Benchmark] 250+ visible links 'f' end-to-end latency: ${perfEval.result.value.toFixed(2)} ms`);
+  assert.ok(
+    perfEval.result.value < 16.0,
+    `Expected sub-frame (<16ms) hint activation for 250+ links, got ${perfEval.result.value.toFixed(2)}ms`
+  );
+
+  // Type 's' then 's' (since N > 14, first leaf is either 's' or 'ss')
+  for (const ch of ["s", "s"]) {
+    await cdp.send(
+      "Input.dispatchKeyEvent",
+      {
+        type: "keyDown",
+        key: ch,
+        text: ch,
+        unmodifiedText: ch,
+        windowsVirtualKeyCode: 83,
+      },
+      sessionId
+    );
+    await cdp.send(
+      "Input.dispatchKeyEvent",
+      {
+        type: "keyUp",
+        key: ch,
+        windowsVirtualKeyCode: 83,
+      },
+      sessionId
+    );
+  }
 
   const clickedCheck = await cdp.send(
     "Runtime.evaluate",

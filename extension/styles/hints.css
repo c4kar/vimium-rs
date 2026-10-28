@@ -1,8 +1,12 @@
 /* Vimium-RS Link Hint Styles */
 .vimium-hint-marker {
   position: absolute;
+  top: 0;
+  left: 0;
   z-index: 2147483647;
   display: block;
+  contain: layout style paint;
+  will-change: transform;
   padding: 1px 3px 0px 3px;
   background: -webkit-linear-gradient(top, #FFF785, #FFC542);
   border: 1px solid #E3BE23;
