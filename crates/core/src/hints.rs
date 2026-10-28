@@ -43,9 +43,10 @@ impl HintGenerator {
 
     /// Generates prefix-free hint labels for `count` items.
     ///
-    /// For alphabet size M and element count N:
-    /// If N <= M: single-character hints.
-    /// If N > M: expands branch nodes to ensure no hint is a prefix of another hint.
+    /// Uses optimal M-ary prefix tree derivation:
+    /// For alphabet size M and target count N:
+    /// Computes depth d such that M^d < N <= M^(d+1).
+    /// Short codes are assigned at depth d, and the remaining nodes are expanded to depth d+1.
     pub fn generate_labels(&self, count: usize) -> Vec<HintLabel> {
         let m = self.alphabet.len();
         if count == 0 {
@@ -58,41 +59,55 @@ impl HintGenerator {
                 .collect();
         }
 
-        // Compute number of branch nodes to expand
-        // N <= M + branches * (M - 1) => branches >= ceil((N - M) / (M - 1))
-        let branch_count = (count - m + (m - 2)) / (m - 1);
-        let mut labels = Vec::with_capacity(count);
+        // Find depth d such that m^d < count <= m^(d+1)
+        let mut d = 1usize;
+        let mut k = m; // k = m^d
+        while k.saturating_mul(m) < count {
+            k = k.saturating_mul(m);
+            d += 1;
+        }
 
+        let next_k = k.saturating_mul(m);
+        // S = short leaves at depth d
+        // S * (m - 1) = next_k - count
+        let s = if next_k >= count {
+            (next_k - count) / (m - 1)
+        } else {
+            0
+        };
+
+        let mut labels = Vec::with_capacity(count);
         let mut buf = [0u8; 7];
 
-        for i in 0..count {
-            if i < (m - branch_count) {
-                // Short single-character hint
-                let char_idx = branch_count + i;
-                labels.push(HintLabel::from_slice(&[self.alphabet[char_idx]]));
-            } else {
-                // Two-character (or deeper) hint
-                let offset = i - (m - branch_count);
-                let first_char = offset / m;
-                let second_char = offset % m;
-
-                if first_char < branch_count {
-                    buf[0] = self.alphabet[first_char];
-                    buf[1] = self.alphabet[second_char];
-                    labels.push(HintLabel::from_slice(&buf[..2]));
-                } else {
-                    // Fallback for larger sets: recursive digit representation
-                    let mut temp = offset;
-                    let mut depth = 0;
-                    while temp > 0 || depth == 0 {
-                        buf[depth] = self.alphabet[temp % m];
-                        temp /= m;
-                        depth += 1;
-                    }
-                    buf[..depth].reverse();
-                    labels.push(HintLabel::from_slice(&buf[..depth]));
-                }
+        // 1. Generate S short labels of depth d
+        for i in 0..s {
+            let mut val = i;
+            for pos in (0..d).rev() {
+                buf[pos] = self.alphabet[val % m];
+                val /= m;
             }
+            labels.push(HintLabel::from_slice(&buf[..d]));
+            if labels.len() == count {
+                return labels;
+            }
+        }
+
+        // 2. Generate long labels of depth d + 1 from remaining branches
+        let branch_start = s;
+        let remaining = count - labels.len();
+
+        for i in 0..remaining {
+            let branch_offset = i / m;
+            let leaf_digit = i % m;
+            let branch_val = branch_start + branch_offset;
+
+            let mut val = branch_val;
+            for pos in (0..d).rev() {
+                buf[pos] = self.alphabet[val % m];
+                val /= m;
+            }
+            buf[d] = self.alphabet[leaf_digit];
+            labels.push(HintLabel::from_slice(&buf[..=d]));
         }
 
         labels
@@ -104,15 +119,25 @@ impl HintGenerator {
         candidates: &[CandidateElementRecord],
     ) -> Vec<HintMarkerLayout> {
         let labels = self.generate_labels(candidates.len());
-        let mut layouts = Vec::with_capacity(candidates.len());
+        let mut layouts: Vec<HintMarkerLayout> = Vec::with_capacity(candidates.len());
 
         for (i, candidate) in candidates.iter().enumerate() {
             let label = labels.get(i).copied().unwrap_or_else(HintLabel::empty);
-            
-            // Standard Vimium marker placement: upper-left corner of visible element rect
-            // with a slight inner margin
-            let marker_x = candidate.x.max(0.0);
+
+            // Upper-left corner of visible element rect with collision offset
+            let mut marker_x = candidate.x.max(0.0);
             let marker_y = candidate.y.max(0.0);
+
+            // Check collision with the previous few markers (sliding window W=8)
+            let window_start = layouts.len().saturating_sub(8);
+            for prev in &layouts[window_start..] {
+                let dx = (prev.x - marker_x).abs();
+                let dy = (prev.y - marker_y).abs();
+                if dx < 14.0 && dy < 12.0 {
+                    // Slight rightward cascade offset for overlapping elements
+                    marker_x += 14.0;
+                }
+            }
 
             layouts.push(HintMarkerLayout {
                 element_id: candidate.element_id,

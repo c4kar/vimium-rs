@@ -5,7 +5,7 @@ pub mod mode;
 
 pub use geometry::{CandidateElementRecord, ElementFlags, HintMarkerLayout, Rect};
 pub use hints::{HintGenerator, HintLabel, DEFAULT_HINT_CHARACTERS};
-pub use keys::{DispatchResult, ExclusionFilter, KeyAction, KeyModifiers, KeySequenceEngine, KeyStroke, KeyTrie};
+pub use keys::{DispatchResult, ExclusionFilter, ExclusionRule, KeyAction, KeyModifiers, KeySequenceEngine, KeyStroke, KeyTrie};
 pub use mode::Mode;
 
 #[cfg(test)]
@@ -84,8 +84,8 @@ mod tests {
             }
         );
 
-        // Unbound key: 'z' -> PassThrough
-        assert_eq!(engine.process_key(b'z'), DispatchResult::PassThrough);
+        // Unbound key: 'q' -> PassThrough
+        assert_eq!(engine.process_key(b'q'), DispatchResult::PassThrough);
     }
 
     #[test]

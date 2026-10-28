@@ -43,8 +43,28 @@ pub enum KeyAction {
     ScrollPageUp,
     ScrollToTop,
     ScrollToBottom,
+    ScrollHalfPageLeft,
+    ScrollHalfPageRight,
+    HistoryBack,
+    HistoryForward,
+    ReloadTab,
+    ReloadTabHard,
+    GoUpUrl,
+    GoToRootUrl,
+    CreateTab,
+    PreviousTab,
+    NextTab,
+    CloseTab,
+    RestoreTab,
+    DuplicateTab,
+    MoveTabLeft,
+    MoveTabRight,
     LinkHints,
     LinkHintsNewTab,
+    CopyCurrentUrl,
+    CopyLinkUrl,
+    OpenFromClipboard,
+    OpenFromClipboardNewTab,
     Vomnibar,
     EnterInsertMode,
     EnterVisualMode,
@@ -141,6 +161,44 @@ impl KeyTrie {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ExclusionRule {
+    pub pattern: String,
+    pub pass_keys: String,
+}
+
+fn glob_match(pattern: &str, text: &str) -> bool {
+    let p_bytes = pattern.as_bytes();
+    let t_bytes = text.as_bytes();
+    let mut p_idx = 0;
+    let mut t_idx = 0;
+    let mut star_p = None;
+    let mut star_t = 0;
+
+    while t_idx < t_bytes.len() {
+        if p_idx < p_bytes.len() && (p_bytes[p_idx] == b'?' || p_bytes[p_idx] == t_bytes[t_idx]) {
+            p_idx += 1;
+            t_idx += 1;
+        } else if p_idx < p_bytes.len() && p_bytes[p_idx] == b'*' {
+            star_p = Some(p_idx);
+            p_idx += 1;
+            star_t = t_idx;
+        } else if let Some(sp) = star_p {
+            p_idx = sp + 1;
+            star_t += 1;
+            t_idx = star_t;
+        } else {
+            return false;
+        }
+    }
+
+    while p_idx < p_bytes.len() && p_bytes[p_idx] == b'*' {
+        p_idx += 1;
+    }
+
+    p_idx == p_bytes.len()
+}
+
 /// Pre-computed bitset filter for O(1) pass-through key evaluation.
 #[derive(Debug, Clone, Default)]
 pub struct ExclusionFilter {
@@ -159,6 +217,23 @@ impl ExclusionFilter {
             pass_ascii: [0; 4],
             disabled_entirely: true,
         }
+    }
+
+    pub fn for_url(rules: &[ExclusionRule], url: &str) -> Self {
+        for rule in rules {
+            if glob_match(&rule.pattern, url) {
+                if rule.pass_keys.is_empty() {
+                    return Self::disabled();
+                } else {
+                    let mut filter = Self::none();
+                    for b in rule.pass_keys.bytes() {
+                        filter.add_pass_key(b);
+                    }
+                    return filter;
+                }
+            }
+        }
+        Self::none()
     }
 
     pub fn add_pass_key(&mut self, key: u8) {
@@ -208,20 +283,55 @@ impl KeySequenceEngine {
 
     pub fn with_default_bindings() -> Self {
         let mut trie = KeyTrie::new();
-        // Navigation
+        // Navigation motions
         trie.insert_ascii(b"j", KeyAction::ScrollDown);
         trie.insert_ascii(b"k", KeyAction::ScrollUp);
         trie.insert_ascii(b"h", KeyAction::ScrollLeft);
         trie.insert_ascii(b"l", KeyAction::ScrollRight);
         trie.insert_ascii(b"0", KeyAction::ScrollLeft);
+        trie.insert_ascii(b"$", KeyAction::ScrollRight);
         trie.insert_ascii(b"d", KeyAction::ScrollPageDown);
         trie.insert_ascii(b"u", KeyAction::ScrollPageUp);
         trie.insert_ascii(b"gg", KeyAction::ScrollToTop);
         trie.insert_ascii(b"G", KeyAction::ScrollToBottom);
+        trie.insert_ascii(b"zH", KeyAction::ScrollHalfPageLeft);
+        trie.insert_ascii(b"zL", KeyAction::ScrollHalfPageRight);
+
+        // Modifiers: Ctrl-d, Ctrl-u, Ctrl-e, Ctrl-y
+        trie.insert(&[KeyStroke::new(b'd', KeyModifiers::CTRL)], KeyAction::ScrollPageDown);
+        trie.insert(&[KeyStroke::new(b'u', KeyModifiers::CTRL)], KeyAction::ScrollPageUp);
+        trie.insert(&[KeyStroke::new(b'e', KeyModifiers::CTRL)], KeyAction::ScrollDown);
+        trie.insert(&[KeyStroke::new(b'y', KeyModifiers::CTRL)], KeyAction::ScrollUp);
+
+        // History
+        trie.insert_ascii(b"H", KeyAction::HistoryBack);
+        trie.insert_ascii(b"L", KeyAction::HistoryForward);
+        trie.insert_ascii(b"r", KeyAction::ReloadTab);
+        trie.insert_ascii(b"R", KeyAction::ReloadTabHard);
+        trie.insert_ascii(b"gu", KeyAction::GoUpUrl);
+        trie.insert_ascii(b"gU", KeyAction::GoToRootUrl);
+
+        // Tabs
+        trie.insert_ascii(b"t", KeyAction::CreateTab);
+        trie.insert_ascii(b"J", KeyAction::PreviousTab);
+        trie.insert_ascii(b"gT", KeyAction::PreviousTab);
+        trie.insert_ascii(b"K", KeyAction::NextTab);
+        trie.insert_ascii(b"gt", KeyAction::NextTab);
+        trie.insert_ascii(b"x", KeyAction::CloseTab);
+        trie.insert_ascii(b"X", KeyAction::RestoreTab);
+        trie.insert_ascii(b"yt", KeyAction::DuplicateTab);
+        trie.insert_ascii(b"<<", KeyAction::MoveTabLeft);
+        trie.insert_ascii(b">>", KeyAction::MoveTabRight);
 
         // Hints
         trie.insert_ascii(b"f", KeyAction::LinkHints);
         trie.insert_ascii(b"F", KeyAction::LinkHintsNewTab);
+
+        // Clipboard & URL
+        trie.insert_ascii(b"yy", KeyAction::CopyCurrentUrl);
+        trie.insert_ascii(b"yf", KeyAction::CopyLinkUrl);
+        trie.insert_ascii(b"p", KeyAction::OpenFromClipboard);
+        trie.insert_ascii(b"P", KeyAction::OpenFromClipboardNewTab);
 
         // Omnibar & Modes
         trie.insert_ascii(b"o", KeyAction::Vomnibar);
