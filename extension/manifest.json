@@ -5,13 +5,21 @@
   "description": "The hacker's browser navigation tool, rewritten in Rust and WebAssembly.",
   "permissions": [
     "storage",
-    "tabs"
+    "tabs",
+    "clipboardWrite"
   ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "vimium-rs@c4kar.github.io",
+      "strict_min_version": "115.0"
+    }
+  },
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
   },
   "background": {
     "service_worker": "background/service_worker.js",
+    "scripts": ["background/service_worker.js"],
     "type": "module"
   },
   "content_scripts": [
@@ -27,6 +35,7 @@
     {
       "resources": [
         "dist/vimium_content_bg.wasm",
+        "dist/vimium_background_bg.wasm",
         "styles/hints.css"
       ],
       "matches": ["<all_urls>"],
