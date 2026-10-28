@@ -70,3 +70,26 @@ fn test_collision_avoidance_layout() {
     assert_eq!(layouts[0].label_len, 1);
     assert_eq!(layouts[1].label_len, 1);
 }
+
+#[test]
+fn test_cross_frame_disjoint_range_partitioning() {
+    let generator = HintGenerator::with_default_alphabet();
+    // Frame 0 has 12 candidates, Frame 1 has 8 candidates, Frame 2 has 15 candidates (total = 35)
+    let total = 35;
+    let full_labels = generator.generate_labels(total);
+
+    let f0 = generator.generate_labels_range(total, 0, 12);
+    let f1 = generator.generate_labels_range(total, 12, 8);
+    let f2 = generator.generate_labels_range(total, 20, 15);
+
+    assert_eq!(f0.len(), 12);
+    assert_eq!(f1.len(), 8);
+    assert_eq!(f2.len(), 15);
+
+    let mut combined = Vec::new();
+    combined.extend_from_slice(&f0);
+    combined.extend_from_slice(&f1);
+    combined.extend_from_slice(&f2);
+
+    assert_eq!(combined, full_labels, "Concatenated frame ranges must equal the global prefix-free tree");
+}

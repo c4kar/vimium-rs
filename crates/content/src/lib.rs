@@ -139,13 +139,26 @@ pub extern "C" fn start_hint_session(
     count: usize,
     action_code: u8,
 ) -> *const HintMarkerLayout {
+    start_hint_session_range(candidates_ptr, count, action_code, count, 0)
+}
+
+/// Starts an interactive `HintSession` for a specific frame slice `[offset .. offset + count]`
+/// of a cross-frame hint tree of size `total_count`.
+#[unsafe(no_mangle)]
+pub extern "C" fn start_hint_session_range(
+    candidates_ptr: *const CandidateElementRecord,
+    count: usize,
+    action_code: u8,
+    total_count: usize,
+    offset: usize,
+) -> *const HintMarkerLayout {
     if candidates_ptr.is_null() || count == 0 {
         return std::ptr::null();
     }
 
     let candidates = unsafe { std::slice::from_raw_parts(candidates_ptr, count) };
     let action = HintAction::from_u8(action_code);
-    let session = HintSession::new(candidates, action);
+    let session = HintSession::new_range(candidates, action, total_count, offset);
     let ptr = session.layouts_ptr();
     let len = session.layouts().len();
 

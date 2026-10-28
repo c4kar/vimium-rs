@@ -113,12 +113,40 @@ impl HintGenerator {
         labels
     }
 
+    /// Generates the disjoint slice `[offset .. offset + count]` from the global prefix-free
+    /// tree of size `total_count`. Used for multi-frame hint partitioning across iframes.
+    pub fn generate_labels_range(
+        &self,
+        total_count: usize,
+        offset: usize,
+        count: usize,
+    ) -> Vec<HintLabel> {
+        if count == 0 || offset >= total_count {
+            return Vec::new();
+        }
+        let all = self.generate_labels(total_count);
+        let end = (offset + count).min(all.len());
+        all[offset..end].to_vec()
+    }
+
     /// Computes marker layouts from candidate records by positioning badges and avoiding collisions.
     pub fn compute_layouts(
         &self,
         candidates: &[CandidateElementRecord],
     ) -> Vec<HintMarkerLayout> {
-        let labels = self.generate_labels(candidates.len());
+        self.compute_layouts_range(candidates, candidates.len(), 0)
+    }
+
+    /// Computes marker layouts using a disjoint range `[offset .. offset + candidates.len()]`
+    /// of the global prefix-free tree of size `total_count`.
+    pub fn compute_layouts_range(
+        &self,
+        candidates: &[CandidateElementRecord],
+        total_count: usize,
+        offset: usize,
+    ) -> Vec<HintMarkerLayout> {
+        let total = total_count.max(offset + candidates.len());
+        let labels = self.generate_labels_range(total, offset, candidates.len());
         let mut layouts: Vec<HintMarkerLayout> = Vec::with_capacity(candidates.len());
 
         for (i, candidate) in candidates.iter().enumerate() {
@@ -205,8 +233,17 @@ pub struct HintSession {
 
 impl HintSession {
     pub fn new(candidates: &[CandidateElementRecord], action: HintAction) -> Self {
+        Self::new_range(candidates, action, candidates.len(), 0)
+    }
+
+    pub fn new_range(
+        candidates: &[CandidateElementRecord],
+        action: HintAction,
+        total_count: usize,
+        offset: usize,
+    ) -> Self {
         let generator = HintGenerator::with_default_alphabet();
-        let layouts = generator.compute_layouts(candidates);
+        let layouts = generator.compute_layouts_range(candidates, total_count, offset);
         let active = !layouts.is_empty();
         Self {
             layouts,

@@ -8,10 +8,13 @@ let shadowHost = null;
 let shadowRoot = null;
 // Transient array for O(1) element lookup by element_id
 let currentElements = [];
+let cachedCandidates = [];
 let activeMarkers = [];
 let activeLayoutsPtr = 0;
 let activeLayoutsCount = 0;
 let isHintModeActive = false;
+let isMultiFrameSession = false;
+let currentFrameId = 0;
 let pendingSequenceTimer = null;
 
 const INTERACTIVE_SELECTOR =
@@ -231,11 +234,11 @@ function renderMarkerText(marker, labelStr, matchedLen) {
 }
 
 // Display Link Hints using direct WASM linear memory transfer
-function showHints(actionCode = 1) {
+function showHints(actionCode = 1, preCollected = null, totalCount = 0, offset = 0) {
   ensureShadowContainer();
   hideHints();
 
-  const candidates = collectCandidates();
+  const candidates = preCollected || collectCandidates();
   if (
     candidates.length === 0 ||
     !wasmExports ||
@@ -255,21 +258,24 @@ function showHints(actionCode = 1) {
   const f32View = new Float32Array(mem, ptr, count * 8);
 
   for (let i = 0; i < count; i++) {
-    const offset = i * 8;
+    const offsetIdx = i * 8;
     const c = candidates[i];
-    u32View[offset + 0] = c.element_id;
-    u32View[offset + 1] = c.flags;
-    f32View[offset + 2] = c.x;
-    f32View[offset + 3] = c.y;
-    f32View[offset + 4] = c.width;
-    f32View[offset + 5] = c.height;
-    u32View[offset + 6] = c.weight & 0xffff;
+    u32View[offsetIdx + 0] = c.element_id;
+    u32View[offsetIdx + 1] = c.flags;
+    f32View[offsetIdx + 2] = c.x;
+    f32View[offsetIdx + 3] = c.y;
+    f32View[offsetIdx + 4] = c.width;
+    f32View[offsetIdx + 5] = c.height;
+    u32View[offsetIdx + 6] = c.weight & 0xffff;
   }
 
-  // 3. Start interactive hint session in Rust Core
-  const layoutsPtr = wasmExports.start_hint_session
-    ? wasmExports.start_hint_session(ptr, count, actionCode)
-    : wasmExports.compute_hint_layouts(ptr, count);
+  // 3. Start interactive hint session in Rust Core (supporting multi-frame offset/total)
+  const effectiveTotal = totalCount > 0 ? totalCount : count;
+  const layoutsPtr = wasmExports.start_hint_session_range
+    ? wasmExports.start_hint_session_range(ptr, count, actionCode, effectiveTotal, offset)
+    : wasmExports.start_hint_session
+      ? wasmExports.start_hint_session(ptr, count, actionCode)
+      : wasmExports.compute_hint_layouts(ptr, count);
   const layoutsCount = wasmExports.get_layouts_count();
 
   activeLayoutsPtr = layoutsPtr;
@@ -469,22 +475,7 @@ window.addEventListener(
     // 1. If interactive HintSession is active, route directly to step_hint_session
     if (isHintModeActive && wasmExports.step_hint_session) {
       e.preventDefault();
-      const stepRes = wasmExports.step_hint_session(keyByte);
-      const status = (stepRes >> 28) & 0xf;
-
-      if (status === 0 || status === 3) {
-        // Cancelled or NoMatch
-        hideHints();
-      } else if (status === 1) {
-        // Filtered subset
-        const matchedLen = (stepRes >> 16) & 0xff;
-        updateMarkersFromWasm(matchedLen);
-      } else if (status === 2) {
-        // Activate element
-        const actionCode = (stepRes >> 24) & 0xf;
-        const elementId = stepRes & 0x00ffffff;
-        activateElement(elementId, actionCode);
-      }
+      processHintStepByte(keyByte, true);
       return;
     }
 
@@ -579,14 +570,78 @@ window.addEventListener(
 // Start WASM initialization
 initWasm();
 
+function processHintStepByte(keyByte, broadcastToTab = true) {
+  if (!isHintModeActive || !wasmExports || !wasmExports.step_hint_session) return;
+
+  if (broadcastToTab && isMultiFrameSession) {
+    chrome.runtime.sendMessage({ type: "HINT_KEYSTROKE", keyByte }).catch(() => {});
+  }
+
+  const stepRes = wasmExports.step_hint_session(keyByte);
+  const status = (stepRes >> 28) & 0xf;
+
+  if (status === 0 || status === 3) {
+    if (broadcastToTab && isMultiFrameSession) {
+      chrome.runtime.sendMessage({ type: "DISMISS_HINTS" }).catch(() => {});
+    }
+    hideHints();
+  } else if (status === 1) {
+    const matchedLen = (stepRes >> 16) & 0xff;
+    updateMarkersFromWasm(matchedLen);
+  } else if (status === 2) {
+    const actionCode = (stepRes >> 24) & 0xf;
+    const elementId = stepRes & 0x00ffffff;
+    if (isMultiFrameSession) {
+      chrome.runtime.sendMessage({ type: "DISMISS_HINTS" }).catch(() => {});
+    }
+    activateElement(elementId, actionCode);
+  }
+}
+
 // Focus tracking across frames
 window.addEventListener("focus", () => {
-  chrome.runtime.sendMessage({ type: "FRAME_FOCUSED" }).catch(() => {});
+  chrome.runtime
+    .sendMessage({ type: "FRAME_FOCUSED" })
+    .then((res) => {
+      if (res && typeof res.frameId === "number") {
+        currentFrameId = res.frameId;
+      }
+    })
+    .catch(() => {});
 });
 
 // Broadcast listener for cross-frame commands
 chrome.runtime.onMessage.addListener((message) => {
+  if (!message || !message.type) return;
+
   if (message.type === "DISMISS_HINTS_BROADCAST") {
     hideHints();
+  } else if (message.type === "COLLECT_FRAME_HINTS") {
+    cachedCandidates = collectCandidates();
+    chrome.runtime
+      .sendMessage({
+        type: "REPORT_FRAME_COUNT",
+        count: cachedCandidates.length,
+      })
+      .then((res) => {
+        if (res && typeof res.frameId === "number") {
+          currentFrameId = res.frameId;
+        }
+      })
+      .catch(() => {});
+  } else if (message.type === "RENDER_FRAME_HINTS") {
+    const offset =
+      message.frameOffsets && message.frameOffsets[currentFrameId] !== undefined
+        ? message.frameOffsets[currentFrameId]
+        : 0;
+    isMultiFrameSession = true;
+    showHints(
+      message.actionCode || 1,
+      cachedCandidates.length > 0 ? cachedCandidates : null,
+      message.totalCount || 0,
+      offset
+    );
+  } else if (message.type === "HINT_KEYSTROKE_BROADCAST") {
+    processHintStepByte(message.keyByte, false);
   }
 });
