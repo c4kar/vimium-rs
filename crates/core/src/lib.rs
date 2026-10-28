@@ -5,7 +5,7 @@ pub mod mode;
 
 pub use geometry::{CandidateElementRecord, ElementFlags, HintMarkerLayout, Rect};
 pub use hints::{HintGenerator, HintLabel, DEFAULT_HINT_CHARACTERS};
-pub use keys::{DispatchResult, KeyAction, KeySequenceEngine, KeyTrie};
+pub use keys::{DispatchResult, ExclusionFilter, KeyAction, KeyModifiers, KeySequenceEngine, KeyStroke, KeyTrie};
 pub use mode::Mode;
 
 #[cfg(test)]
@@ -54,14 +54,23 @@ mod tests {
             }
         );
 
-        // Count prefix: '1', '2', 'j' -> ScrollDown count 12
+        // Strict Vim '0': when no count has started, '0' is ScrollLeft
+        assert_eq!(
+            engine.process_key(b'0'),
+            DispatchResult::Execute {
+                action: KeyAction::ScrollLeft,
+                count: 1
+            }
+        );
+
+        // Count prefix: '1', '0', 'j' -> ScrollDown count 10
         assert_eq!(engine.process_key(b'1'), DispatchResult::Pending);
-        assert_eq!(engine.process_key(b'2'), DispatchResult::Pending);
+        assert_eq!(engine.process_key(b'0'), DispatchResult::Pending);
         assert_eq!(
             engine.process_key(b'j'),
             DispatchResult::Execute {
                 action: KeyAction::ScrollDown,
-                count: 12
+                count: 10
             }
         );
 
@@ -77,6 +86,43 @@ mod tests {
 
         // Unbound key: 'z' -> PassThrough
         assert_eq!(engine.process_key(b'z'), DispatchResult::PassThrough);
+    }
+
+    #[test]
+    fn test_exclusion_filter() {
+        let mut engine = KeySequenceEngine::with_default_bindings();
+        let mut filter = ExclusionFilter::none();
+        filter.add_pass_key(b'j'); // Pass 'j' on Gmail
+        engine.set_exclusion_filter(filter);
+
+        // 'j' should now pass through to the page
+        assert_eq!(engine.process_key(b'j'), DispatchResult::PassThrough);
+
+        // 'k' should still execute ScrollUp
+        assert_eq!(
+            engine.process_key(b'k'),
+            DispatchResult::Execute {
+                action: KeyAction::ScrollUp,
+                count: 1
+            }
+        );
+    }
+
+    #[test]
+    fn test_modal_suspension_stack() {
+        let mut engine = KeySequenceEngine::with_default_bindings();
+
+        // Switch persistent mode to Visual mode
+        engine.set_mode(Mode::Visual);
+        assert_eq!(engine.mode(), Mode::Visual);
+
+        // Trigger transient Hints mode from Visual mode
+        engine.enter_transient_mode(Mode::Hints);
+        assert_eq!(engine.mode(), Mode::Hints);
+
+        // Esc or dismiss resumes Visual mode, not Normal
+        assert_eq!(engine.process_key(27), DispatchResult::Cancelled);
+        assert_eq!(engine.mode(), Mode::Visual);
     }
 
     #[test]

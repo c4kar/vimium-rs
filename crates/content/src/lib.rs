@@ -32,6 +32,8 @@ pub fn process_key_event(key_byte: u8) -> i32 {
             let action_id = match action {
                 KeyAction::ScrollDown => 10,
                 KeyAction::ScrollUp => 11,
+                KeyAction::ScrollLeft => 16,
+                KeyAction::ScrollRight => 17,
                 KeyAction::ScrollPageDown => 12,
                 KeyAction::ScrollPageUp => 13,
                 KeyAction::ScrollToTop => 14,

@@ -24,6 +24,18 @@ _Avoid_: Overlay layer, hint div
 An ordered series of keystrokes with optional count prefixes and modifiers mapped to an executable command.
 _Avoid_: Key chord, keystroke combo, shortcut
 
+**Key Stroke**:
+A packed 16-bit struct (`KeyStroke`) encoding an 8-bit key code and a 4-bit modifier bitmask (Ctrl, Alt, Meta, Shift) for zero-allocation comparisons.
+_Avoid_: Key event, key token, raw key
+
+**Exclusion Filter**:
+A pre-computed bitset or lookup table compiled from URL pattern rules, allowing $O(1)$ pass-through evaluation per keystroke.
+_Avoid_: URL whitelist, ignore list
+
+**Suspended Mode**:
+A preserved modal state stored on an internal mode stack when entering transient operational modes like Hints or PassNextKey.
+_Avoid_: Background state, previous mode
+
 **Mode**:
 A distinct modal state (such as Normal, Insert, Visual, or Find) that dictates how input events are captured and handled.
 _Avoid_: Operational state, phase
