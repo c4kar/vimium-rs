@@ -8,6 +8,18 @@ A keyboard-driven browser navigation WebExtension rewritten primarily in Rust an
 A visual letter badge overlaid on interactive or clickable DOM elements for keyboard targeting.
 _Avoid_: Link badge, target tag, overlay bubble
 
+**Candidate Record**:
+A 32-byte cache-aligned struct (`CandidateElementRecord`) containing element bounding coordinates, integer ID, and bitflags passed directly into WASM linear memory.
+_Avoid_: Scanned element, candidate object
+
+**Hint Marker Layout**:
+A 24-byte layout struct (`HintMarkerLayout`) produced by the Rust hint engine and read directly by JavaScript to render hint badges into the DOM.
+_Avoid_: Marker position, badge dto
+
+**Hint Overlay Container**:
+A closed Shadow DOM container (`#vimium-rs-hints-container`) attached to `document.documentElement` isolating hint badge DOM nodes and styles from the webpage.
+_Avoid_: Overlay layer, hint div
+
 **Key Sequence**:
 An ordered series of keystrokes with optional count prefixes and modifiers mapped to an executable command.
 _Avoid_: Key chord, keystroke combo, shortcut
