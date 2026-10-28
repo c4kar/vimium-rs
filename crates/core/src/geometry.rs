@@ -24,6 +24,7 @@ pub struct CandidateElementRecord {
     pub height: f32,
     pub weight: u16,
     pub _pad: u16,
+    pub _reserved: u32,
 }
 
 /// 24-byte layout struct emitted by Rust hint generation and read directly by the JS renderer.

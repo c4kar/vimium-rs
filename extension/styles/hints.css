@@ -18,3 +18,12 @@
   user-select: none;
   pointer-events: none;
 }
+
+.vimium-hint-matched {
+  color: #D4AC0D;
+  opacity: 0.65;
+}
+
+.vimium-hint-hidden {
+  display: none !important;
+}

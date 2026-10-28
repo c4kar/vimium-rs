@@ -4,7 +4,10 @@ pub mod keys;
 pub mod mode;
 
 pub use geometry::{CandidateElementRecord, ElementFlags, HintMarkerLayout, Rect};
-pub use hints::{HintGenerator, HintLabel, DEFAULT_HINT_CHARACTERS};
+pub use hints::{
+    HintAction, HintGenerator, HintLabel, HintSession, HintStepResult, DEFAULT_HINT_CHARACTERS,
+    MARKER_HIDDEN_FLAG,
+};
 pub use keys::{DispatchResult, ExclusionFilter, ExclusionRule, KeyAction, KeyModifiers, KeySequenceEngine, KeyStroke, KeyTrie};
 pub use mode::Mode;
 
@@ -133,5 +136,7 @@ mod tests {
 
         // Should split into top, bottom, left, right bands
         assert_eq!(pieces.len(), 4);
+        assert_eq!(core::mem::size_of::<CandidateElementRecord>(), 32);
+        assert_eq!(core::mem::size_of::<HintMarkerLayout>(), 24);
     }
 }

@@ -152,3 +152,163 @@ impl HintGenerator {
         layouts
     }
 }
+
+/// Bit 31 in `HintMarkerLayout::flags` indicates the marker is filtered out (hidden).
+pub const MARKER_HIDDEN_FLAG: u32 = 1 << 31;
+
+/// Action to execute when a hint label uniquely matches a target element.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum HintAction {
+    ClickCurrentTab = 1,
+    ClickNewTab = 2,
+    CopyLinkUrl = 3,
+}
+
+impl HintAction {
+    pub fn from_u8(val: u8) -> Self {
+        match val {
+            2 => HintAction::ClickNewTab,
+            3 => HintAction::CopyLinkUrl,
+            _ => HintAction::ClickCurrentTab,
+        }
+    }
+}
+
+/// Result of processing a keystroke inside an active `HintSession`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HintStepResult {
+    /// A leaf hint matched completely; activate `element_id` with `action`.
+    Activate {
+        element_id: u32,
+        action: HintAction,
+    },
+    /// Prefix matched a subset of hints; `matched_len` characters are highlighted.
+    Filtered {
+        active_count: usize,
+        matched_len: u8,
+    },
+    /// Keystroke did not match any remaining hint; session terminates.
+    NoMatch,
+    /// User pressed Escape; session terminates.
+    Cancelled,
+}
+
+/// Stateful interactive link hint session operating over generated layouts.
+pub struct HintSession {
+    layouts: Vec<HintMarkerLayout>,
+    action: HintAction,
+    typed_buf: [u8; 7],
+    typed_len: u8,
+    active: bool,
+}
+
+impl HintSession {
+    pub fn new(candidates: &[CandidateElementRecord], action: HintAction) -> Self {
+        let generator = HintGenerator::with_default_alphabet();
+        let layouts = generator.compute_layouts(candidates);
+        let active = !layouts.is_empty();
+        Self {
+            layouts,
+            action,
+            typed_buf: [0; 7],
+            typed_len: 0,
+            active,
+        }
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.active
+    }
+
+    pub fn action(&self) -> HintAction {
+        self.action
+    }
+
+    pub fn typed_prefix(&self) -> &[u8] {
+        &self.typed_buf[..self.typed_len as usize]
+    }
+
+    pub fn layouts(&self) -> &[HintMarkerLayout] {
+        &self.layouts
+    }
+
+    pub fn layouts_ptr(&self) -> *const HintMarkerLayout {
+        self.layouts.as_ptr()
+    }
+
+    pub fn process_key(&mut self, key_byte: u8) -> HintStepResult {
+        if !self.active {
+            return HintStepResult::Cancelled;
+        }
+
+        // Escape cancels immediately
+        if key_byte == 27 {
+            self.active = false;
+            return HintStepResult::Cancelled;
+        }
+
+        // Backspace (8 or 127) pops the last typed character
+        if key_byte == 8 || key_byte == 127 {
+            if self.typed_len > 0 {
+                self.typed_len -= 1;
+            }
+            let active_count = self.update_layout_flags();
+            return HintStepResult::Filtered {
+                active_count,
+                matched_len: self.typed_len,
+            };
+        }
+
+        // Normalize uppercase ASCII to lowercase for hint matching
+        let normalized = key_byte.to_ascii_lowercase();
+        if (self.typed_len as usize) < self.typed_buf.len() {
+            self.typed_buf[self.typed_len as usize] = normalized;
+            self.typed_len += 1;
+        }
+
+        let prefix = &self.typed_buf[..self.typed_len as usize];
+
+        // Check for exact leaf match first (because codes are strictly prefix-free,
+        // an exact match on any label guarantees no other label has it as a prefix)
+        for layout in &self.layouts {
+            let label_slice = &layout.label[..layout.label_len as usize];
+            if label_slice == prefix {
+                self.active = false;
+                return HintStepResult::Activate {
+                    element_id: layout.element_id,
+                    action: self.action,
+                };
+            }
+        }
+
+        let active_count = self.update_layout_flags();
+        if active_count == 0 {
+            self.active = false;
+            HintStepResult::NoMatch
+        } else {
+            HintStepResult::Filtered {
+                active_count,
+                matched_len: self.typed_len,
+            }
+        }
+    }
+
+    fn update_layout_flags(&mut self) -> usize {
+        let prefix = &self.typed_buf[..self.typed_len as usize];
+        let mut active_count = 0;
+
+        for layout in &mut self.layouts {
+            let base_flags = layout.flags & 0x00FF_FFFF;
+            let label_slice = &layout.label[..layout.label_len as usize];
+            if label_slice.starts_with(prefix) {
+                layout.flags = base_flags | ((self.typed_len as u32) << 24);
+                active_count += 1;
+            } else {
+                layout.flags = base_flags | MARKER_HIDDEN_FLAG;
+            }
+        }
+
+        active_count
+    }
+}

@@ -48,6 +48,7 @@ fn test_collision_avoidance_layout() {
             height: 30.0,
             weight: 10,
             _pad: 0,
+            _reserved: 0,
         },
         CandidateElementRecord {
             element_id: 2,
@@ -58,6 +59,7 @@ fn test_collision_avoidance_layout() {
             height: 25.0,
             weight: 10,
             _pad: 0,
+            _reserved: 0,
         },
     ];
 
